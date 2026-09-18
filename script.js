@@ -98,6 +98,7 @@ function init(){
   var nameField = $('playerName');
   if (nameField) nameField.value = cleanName(safeGet(NAME_KEY));
   markStore();
+  flushPending();
   resetMission();
   requestAnimationFrame(frame);
 }
@@ -1354,9 +1355,10 @@ function dbFetch(url, opts){
   );
 }
 
-var LOCAL_KEY  = 'bayanihan.runs';
-var NAME_KEY   = 'bayanihan.callsign';
-var PLAYER_KEY = 'bayanihan.player_id';
+var LOCAL_KEY   = 'bayanihan.runs';
+var NAME_KEY    = 'bayanihan.callsign';
+var PLAYER_KEY  = 'bayanihan.player_id';
+var PENDING_KEY = 'bayanihan.pending';
 
 function safeGet(k){ try { return window.localStorage.getItem(k); } catch(e){ return null; } }
 function safeSet(k, v){ try { window.localStorage.setItem(k, v); } catch(e){} }
@@ -1435,6 +1437,31 @@ function localSave(run){
   try { safeSet(LOCAL_KEY, JSON.stringify(localRuns().slice(0, 50))); } catch(e){}
 }
 
+/* Runs finished while the database was unreachable wait here so they are not
+   stranded in this browser forever; the next load that reaches Supabase
+   posts them. */
+function pendingRuns(){
+  var q;
+  try { q = JSON.parse(safeGet(PENDING_KEY) || '[]'); } catch(e){ q = []; }
+  return Array.isArray(q) ? q : [];
+}
+
+function queuePending(run){
+  var q = pendingRuns();
+  q.push(run);
+  safeSet(PENDING_KEY, JSON.stringify(q.slice(-50)));
+}
+
+function flushPending(){
+  if (!DB.live()) return;
+  var q = pendingRuns();
+  if (!q.length) return;
+  safeSet(PENDING_KEY, '[]');
+  q.forEach(function(run){
+    postRun(run).catch(function(){ queuePending(run); });
+  });
+}
+
 /* one row per finished mission — gameplay only, never anything personal */
 function buildRun(status, verdict){
   return {
@@ -1450,9 +1477,8 @@ function buildRun(status, verdict){
   };
 }
 
-function saveRun(run, done){
-  if (!DB.live()){ localSave(run); done(null, 'local'); return; }
-  dbFetch(DB.rest(), {
+function postRun(run){
+  return dbFetch(DB.rest(), {
     method  : 'POST',
     headers : DB.head({ 'Content-Type': 'application/json', 'Prefer': 'return=minimal' }),
     body    : JSON.stringify(run)
@@ -1463,8 +1489,14 @@ function saveRun(run, done){
       throw e;
     });
     return true;
-  }).then(function(){ done(null, 'remote'); })
-    .catch(function(err){ localSave(run); done(err, 'local'); });
+  });
+}
+
+function saveRun(run, done){
+  if (!DB.live()){ localSave(run); queuePending(run); done(null, 'local'); return; }
+  postRun(run)
+    .then(function(){ done(null, 'remote'); })
+    .catch(function(err){ localSave(run); queuePending(run); done(err, 'local'); });
 }
 
 function fetchBoard(done){
