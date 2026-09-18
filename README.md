@@ -11,10 +11,17 @@ vulnerable residents fared. The after-action screen then shows a Top runs leader
 "Load from database" button reads the records back on demand.
 
 ## Group Members
-1. Makheyl Chaild Dela Cruz
-2. Member Name
-3. Member Name
-4. Member Name
+1. Christian Mchail Dela Cruz
+2. Shiereen Francine Santos
+3. Joaquin Andrei Singayan
+4. John Benedict Villamor
+5. Neil Andrew Velandrez
+
+## Contributors
+| GitHub | Name |
+|---|---|
+| [@makheyl](https://github.com/makheyl) | Christian Mchail Dela Cruz |
+| [@nail-ambrew](https://github.com/nail-ambrew) | Neil Andrew Velandrez |
 
 ## Description
 The prototype is a 3D disaster rescue game set in a flooded barangay during a typhoon. The
@@ -29,7 +36,6 @@ players can compare their scores.
 - Supabase REST API for the database connection
 - Visual Studio Code with the Live Server extension
 - Git and GitHub
-- Claude (Anthropic) for code assistance
 
 ## Database Used
 Supabase (PostgreSQL 15), accessed through its REST API.
@@ -184,4 +190,3 @@ The instructor GitHub account gracheleliza was added as collaborator.
 - Supabase REST API (PostgREST) — https://postgrest.org/en/stable/
 - PostgreSQL documentation — https://www.postgresql.org/docs/
 - MDN Web Docs (Fetch API, Canvas, WebGL) — https://developer.mozilla.org/
-- Claude (Anthropic) — used for code assistance and for writing the database schema
