@@ -1224,11 +1224,34 @@ function updateRescue(dt){
     return;
   }
 
+  // What this rescue needs, and whether the boat is carrying it.
+  var gate = canRescue(best);
+  if (!gate.ok){
+    if (gate.missing) noteBlocked(gate.missing, best);
+    setPrompt(best.data.name + ' — ' + TAGS[best.tag].label, gate.reason, 0);
+    S.boardT = 0; S.boardTarget = null;
+    return;
+  }
+
   var holding = !!keys['e'];
   if (S.boardTarget !== best){ S.boardTarget = best; S.boardT = 0; }
+
+  // An injured resident has to be stabilised with the botika before they can
+  // be moved at all — a longer hold than simply helping someone over the side.
+  var need = (best.tag === 'injured' && !best.stabilised) ? CFG.stabilise : CFG.boardTime;
+
   if (holding && Math.abs(S.speed) < 6.5){
     S.boardT += dt;
-    if (S.boardT >= CFG.boardTime){
+    if (S.boardT >= need){
+      if (best.tag === 'injured' && !best.stabilised){
+        best.stabilised = true;
+        S.inv.used.botika = (S.inv.used.botika || 0) + 1;
+        S.boardT = 0;
+        toast(best.data.name.split(',')[0] + ' stabilised — now get them aboard', 'info');
+        return;
+      }
+      if (best.situation === 'water')  S.inv.used.salbabida = (S.inv.used.salbabida || 0) + 1;
+      if (best.situation === 'debris') S.inv.used.lubid     = (S.inv.used.lubid     || 0) + 1;
       best.aboard = true; best.known = true;
       best.group.visible = false;
       S.aboard.push(best);
@@ -1241,8 +1264,43 @@ function updateRescue(dt){
   } else {
     S.boardT = Math.max(0, S.boardT - dt * 1.6);
   }
-  var note = Math.abs(S.speed) >= 6.5 ? 'Slow down alongside' : 'Hold <span class="key">E</span> to bring aboard';
-  setPrompt(best.data.name + ' — ' + TAGS[best.tag].label, note, S.boardT / CFG.boardTime);
+  var note = Math.abs(S.speed) >= 6.5 ? 'Slow down alongside'
+           : (best.tag === 'injured' && !best.stabilised)
+             ? 'Hold <span class="key">E</span> — treating with the Botika'
+             : 'Hold <span class="key">E</span> to bring aboard';
+  setPrompt(best.data.name + ' — ' + TAGS[best.tag].label, note, S.boardT / need);
+}
+
+/* --------------------------------------------------------------------------
+   Can this person be taken right now? A missing item is never a hard fail in
+   the sense of ending the run — it just means this particular rescue is not
+   available to you, and the report will say so by name afterwards.
+   -------------------------------------------------------------------------- */
+function canRescue(v){
+  if (v.situation === 'water' && !hasSupply('salbabida')){
+    return { ok:false, missing:'salbabida',
+             reason:'In open water — you needed the <span class="key">Salbabida</span>' };
+  }
+  if (v.situation === 'debris' && !hasSupply('lubid')){
+    return { ok:false, missing:'lubid',
+             reason:'Pinned behind debris — you needed the <span class="key">Lubid</span>' };
+  }
+  if (v.tag === 'injured' && !v.stabilised && !hasSupply('botika')){
+    return { ok:false, missing:'botika',
+             reason:'Too hurt to climb in — you needed the <span class="key">Botika</span>' };
+  }
+  return { ok:true };
+}
+
+/* Remember, once per person, that a slot we did not pack would have unlocked
+   this rescue. The after-action report counts heads, not attempts. */
+function noteBlocked(supplyId, v){
+  if (!S.blocked[supplyId]) S.blocked[supplyId] = {};
+  S.blocked[supplyId][v.data.name] = true;
+}
+
+function blockedCount(supplyId){
+  return S.blocked[supplyId] ? Object.keys(S.blocked[supplyId]).length : 0;
 }
 
 function refreshSeats(){
