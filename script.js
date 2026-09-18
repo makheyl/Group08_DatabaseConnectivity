@@ -663,8 +663,17 @@ function bindInput(){
     })(tb[i]);
   }
 
-  $('startBtn').addEventListener('click', startMission);
-  $('againBtn').addEventListener('click', startMission);
+  // Both entry points land on the preparation phase, never straight in the
+  // water. Repacking after a bad run is the point of the whole exercise.
+  $('startBtn').addEventListener('click', function(){ openPrep('brief'); });
+  $('againBtn').addEventListener('click', function(){ openPrep('summary'); });
+  $('launchBtn').addEventListener('click', startMission);
+  $('prepBack').addEventListener('click', closePrep);
+  $('prepSuggest').addEventListener('click', function(){
+    loadout = RECOMMENDED.slice(0, CFG.slots);
+    renderPrep();
+  });
+  $('prepClear').addEventListener('click', function(){ loadout = []; renderPrep(); });
   $('refreshBoard').addEventListener('click', function(){
     var btn = this;
     btn.disabled = true;
@@ -709,6 +718,9 @@ function resetMission(){
     flareCD: 0, flareT: 0,
     boardT: 0, boardTarget: null,
     unloadT: 0,
+    inv: makeInventory(loadout),
+    blocked: {},           // supply id -> { residentName: true } it would have unlocked
+    neverFound: 0,
     over: false, result: null, score: 0,
     playerName: cleanName(($('playerName') || {}).value || safeGet(NAME_KEY)),
     lightning: rnd(4, 9), flashV: 0,
@@ -727,6 +739,85 @@ function resetMission(){
   syncHUD();
 }
 
+/* =========================  PREPARATION PHASE  ========================= */
+
+var prepFrom = 'brief';
+
+function openPrep(from){
+  prepFrom = from || 'brief';
+  var field = $('playerName');
+  if (field) safeSet(NAME_KEY, cleanName(field.value));
+  $('briefing').hidden = true;
+  $('summary').hidden = true;
+  $('pause').hidden = true;
+  $('prep').hidden = false;
+  renderPrep();
+}
+
+function closePrep(){
+  $('prep').hidden = true;
+  $(prepFrom === 'summary' ? 'summary' : 'briefing').hidden = false;
+}
+
+function toggleSupply(id){
+  var at = loadout.indexOf(id);
+  if (at !== -1){ loadout.splice(at, 1); }
+  else if (loadout.length < CFG.slots){ loadout.push(id); }
+  else {
+    // A full boat is the constraint doing the teaching, so say so rather than
+    // silently swapping something out.
+    prepNote('The bangka is full. Take something out before you add <b>' +
+             esc(SUPPLY_BY_ID[id].fil) + '</b>.');
+    return;
+  }
+  renderPrep();
+}
+
+function prepNote(html){ $('prepNote').innerHTML = html; }
+
+function renderPrep(){
+  var slots = '';
+  for (var i = 0; i < CFG.slots; i++){
+    var id = loadout[i];
+    slots += id ? '<i class="filled" title="' + esc(SUPPLY_BY_ID[id].fil) + '">' +
+                  esc(SUPPLY_BY_ID[id].fil.charAt(0)) + '</i>'
+                : '<i aria-hidden="true">+</i>';
+  }
+  $('prepSlots').innerHTML = slots;
+
+  var grid = '';
+  for (var s = 0; s < SUPPLIES.length; s++){
+    var d = SUPPLIES[s];
+    var on = hasSupply(d.id);
+    grid += '<button type="button" class="supply ' + (on ? 'on' : 'off') + '" data-sup="' + d.id + '"'
+          + ' aria-pressed="' + on + '">'
+          + '<div class="nm">' + esc(d.fil) + '</div>'
+          + '<div class="en">' + esc(d.eng) + '</div>'
+          + '<div class="fx">' + esc(d.fx) + '</div>'
+          + (RECOMMENDED.indexOf(d.id) !== -1 ? '<span class="rec">Recommended</span>' : '')
+          + '</button>';
+  }
+  $('prepGrid').innerHTML = grid;
+
+  var btns = $('prepGrid').querySelectorAll('.supply');
+  for (var b = 0; b < btns.length; b++){
+    btns[b].addEventListener('click', function(){ toggleSupply(this.getAttribute('data-sup')); });
+  }
+
+  // Name what this pack cannot do, without ever blocking the launch.
+  var gaps = [];
+  if (!hasSupply('salbabida')) gaps.push('anyone already in the water');
+  if (!hasSupply('lubid'))     gaps.push('anyone pinned behind debris');
+  if (!hasSupply('botika'))    gaps.push('the injured');
+  var free = CFG.slots - loadout.length;
+  var note = '';
+  if (free > 0) note += free + ' slot' + (free === 1 ? '' : 's') + ' still empty. ';
+  note += gaps.length
+    ? 'As packed you cannot reach <b>' + gaps.join('</b>, <b>') + '</b>.'
+    : 'This pack can reach every situation on the roster.';
+  prepNote(note);
+}
+
 function startMission(){
   var field = $('playerName');
   if (field){
@@ -735,6 +826,7 @@ function startMission(){
   }
   resetMission();
   S.phase = 'run';
+  $('prep').hidden = true;
   $('briefing').hidden = true;
   $('summary').hidden = true;
   $('pause').hidden = true;

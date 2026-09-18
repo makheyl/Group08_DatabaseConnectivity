@@ -109,7 +109,29 @@
         <input id="playerName" type="text" maxlength="24" placeholder="Rescue unit callsign" autocomplete="off" spellcheck="false" aria-label="Rescue unit callsign">
         <span class="chip" id="dbChip">checking store&hellip;</span>
       </div>
-      <button class="cta" id="startBtn">Launch the boat</button>
+      <button class="cta" id="startBtn">Pack the boat</button>
+    </div>
+  </div>
+
+  <div class="overlay" id="prep" hidden>
+    <div class="sheet">
+      <div class="eyebrow">Paghahanda &middot; Preparation phase</div>
+      <h1 style="font-size:clamp(26px,4.6vw,38px)">Pack the bangka<span>Four slots. Eight things worth taking.</span></h1>
+      <p class="brief">
+        The bangka carries <b>four</b> items and no more. Nothing here is required and nothing is
+        blocked &mdash; but what you leave on the dock is what you will not have when you are
+        alongside somebody in the water. Read the roster: there are people in the current, people
+        pinned behind debris, and people too hurt to climb in on their own.
+      </p>
+      <div class="slotrow">
+        <div class="slots" id="prepSlots" aria-label="Boat supply slots"></div>
+        <button class="minibtn" id="prepSuggest" type="button">Suggested pack</button>
+        <button class="minibtn" id="prepClear" type="button">Empty the boat</button>
+      </div>
+      <div class="supplies" id="prepGrid"></div>
+      <div class="prepnote" id="prepNote" role="status" aria-live="polite"></div>
+      <button class="cta" id="launchBtn">Launch the boat</button>
+      <button class="cta ghost" id="prepBack">Back to the briefing</button>
     </div>
   </div>
 
