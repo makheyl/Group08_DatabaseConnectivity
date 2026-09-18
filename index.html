@@ -38,17 +38,17 @@
     </div>
 
     <div class="panel hud-br">
-      <canvas id="minimap" width="168" height="168"></canvas>
+      <canvas id="minimap" width="168" height="168" role="img" aria-label="Minimap of Brgy. San Isidro showing the boat, the residents still waiting and the evacuation centre"></canvas>
       <div class="label center">Brgy. San Isidro</div>
     </div>
 
-    <div class="alert" id="alert" hidden></div>
+    <div class="alert" id="alert" role="status" aria-live="assertive" hidden></div>
     <div class="prompt" id="prompt" hidden>
       <div class="name" id="promptName">Resident</div>
       <div class="note" id="promptNote">Hold <span class="key">E</span> to bring aboard</div>
       <div class="bar"><i id="promptBar"></i></div>
     </div>
-    <div class="toast" id="toast" hidden></div>
+    <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
   </div>
 
   <div id="touch" hidden>
@@ -130,7 +130,7 @@
       <p class="brief" id="sumText"></p>
       <div class="scores" id="sumScores"></div>
       <div class="roster" id="sumRoster"></div>
-      <div class="saverow" id="saveRow"><b>Saving run&hellip;</b></div>
+      <div class="saverow" id="saveRow" role="status" aria-live="polite"><b>Saving run&hellip;</b></div>
       <div class="boardhead">
         <h2>Top runs</h2>
         <button class="minibtn" id="refreshBoard" type="button">Load from database</button>
