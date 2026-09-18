@@ -12,6 +12,9 @@ var canvas = $('scene');
 var CFG = {
   missionTime : 300,      // seconds
   capacity    : 3,        // residents per trip
+  slots       : 4,        // supplies the bangka can carry
+  stabilise   : 2.0,      // seconds of holding E to treat an injured resident
+  radioCool   : 20,       // seconds between bearings from the MDRRMO
   riseTotal   : 1.15,     // metres the floodwater climbs over the mission
   discover    : 32,       // metres at which a signal light becomes visible
   rescueRange : 9.0,      // metres to hold alongside
@@ -25,15 +28,90 @@ var CFG = {
 };
 
 var RESIDENTS = [
-  { name:'Aling Rosa, 68',    note:'retired teacher, roof of the sari-sari store' },
-  { name:'Mang Delfin, 71',   note:'tricycle driver, clinging to his awning' },
-  { name:'Jomar, 9',          note:'with his dog Bantay on the water tank' },
-  { name:'Sheryl, 34',        note:'carrying a four-month-old' },
-  { name:'Kuya Rico, 22',     note:'barangay tanod, stayed to help neighbours' },
-  { name:'Nanay Linda, 58',   note:'would not leave the store takings' },
-  { name:'Tito Ben, 45',      note:'carpenter, cut a hole through his own roof' },
-  { name:'Ate Mylene, 29',    note:'nurse, off shift at the district hospital' }
+  { name:'Aling Rosa, 68',    note:'retired teacher, roof of the sari-sari store',   tag:'elderly' },
+  { name:'Mang Delfin, 71',   note:'tricycle driver, clinging to his awning',        tag:'elderly' },
+  { name:'Jomar, 9',          note:'with his dog Bantay on the water tank',          tag:'child'   },
+  { name:'Sheryl, 34',        note:'carrying a four-month-old',                      tag:'adult'   },
+  { name:'Kuya Rico, 22',     note:'barangay tanod, stayed to help neighbours',      tag:'adult'   },
+  { name:'Nanay Linda, 58',   note:'would not leave the store takings',              tag:'injured' },
+  { name:'Tito Ben, 45',      note:'carpenter, cut a hole through his own roof',     tag:'injured' },
+  { name:'Ate Mylene, 29',    note:'nurse, off shift at the district hospital',      tag:'adult'   }
 ];
+
+/* Triage: higher priority is worth more and runs out sooner. Those two numbers
+   are the whole lesson — you cannot save everyone, so you learn who to reach
+   first. `timer` is seconds of hold before their situation worsens. */
+var TAGS = {
+  injured : { score: 220, timer: 118, label: 'Sugatan · Injured',     pip: 'injured' },
+  elderly : { score: 170, timer: 140, label: 'Matanda · Elderly',     pip: 'elderly' },
+  child   : { score: 160, timer: 152, label: 'Bata · Child',          pip: 'child'   },
+  adult   : { score: 100, timer: 215, label: 'Malakas · Able-bodied', pip: 'adult'   }
+};
+
+/* Once someone is off a roof and in the current they are still savable, but
+   only with the salbabida and only for this long. */
+var WATER_GRACE = 58;
+
+/* The eight things worth taking and what each one does in the water. The boat
+   holds four, so packing is the real decision the game asks the player to make.
+     passive  — works by being aboard
+     toggle   — its number key turns it on and off
+     charge   — its number key spends one of `charges`
+     cooldown — its number key fires it, then waits `cooldown` seconds */
+var SUPPLIES = [
+  { id:'salbabida',  fil:'Salbabida',    eng:'Lifebuoy',        mode:'passive',
+    fx:'Pull someone out of open water. Without it you can only pass them by.',
+    tip:'Unlocks every resident already in the current.' },
+  { id:'botika',     fil:'Botika',       eng:'First-aid kit',   mode:'passive',
+    fx:'Stabilise an injured resident — a two-second hold — so they can board at all.',
+    tip:'Injured residents score highest and have the shortest fuse.' },
+  { id:'flashlight', fil:'Flashlight',   eng:'Flashlight',      mode:'toggle', defaultOn:true,
+    fx:'Doubles the range at which you spot a signal light through the rain.',
+    tip:'The storm is dark. Without it you will drive straight past people.' },
+  { id:'lubid',      fil:'Lubid',        eng:'Rope',            mode:'passive',
+    fx:'Haul residents out from behind debris and off collapsing structures.',
+    tip:'Debris-pinned residents cannot be reached by hand.' },
+  { id:'tubig',      fil:'Tubig',        eng:'Drinking water',  mode:'charge', charges:3,
+    fx:'Three swigs. Each one refills the engine boost instantly.',
+    tip:'Boost is what lets you fight the current instead of going around it.' },
+  { id:'radyo',      fil:'Radyo',        eng:'Two-way radio',   mode:'cooldown', cooldown:20,
+    fx:'Calls the MDRRMO for a bearing to the nearest resident you have not found.',
+    tip:'The search assist. Without it the bearing needle stays dark.' },
+  { id:'kapote',     fil:'Kapote',       eng:'Raincoat',        mode:'passive',
+    fx:'Keeps the crew working in the downpour — residents hold on longer.',
+    tip:'Buys time across the whole roster rather than saving any one person.' },
+  { id:'relief',     fil:'Relief Goods', eng:'Food packs',      mode:'passive',
+    fx:'+30 points for every resident delivered. Costs a slot a rescue tool could use.',
+    tip:'Pure score. It never saves anyone the tools would have saved.' }
+];
+
+var SUPPLY_BY_ID = {};
+SUPPLIES.forEach(function(s){ SUPPLY_BY_ID[s.id] = s; });
+
+var RECOMMENDED = ['salbabida', 'botika', 'lubid', 'flashlight'];
+
+/* What the player packed. Survives a retry so the report's advice can be
+   acted on without repacking from scratch. */
+var loadout = RECOMMENDED.slice();
+
+function hasSupply(id){ return loadout.indexOf(id) !== -1; }
+
+/* Runtime counters for the packed kit, rebuilt at every launch. Kept as a
+   plain object so it serialises into the run record with everything else. */
+function makeInventory(packed){
+  var inv = { packed: packed.slice(), state: {}, used: {} };
+  packed.forEach(function(id){
+    var def = SUPPLY_BY_ID[id];
+    if (!def) return;
+    inv.state[id] = {
+      on      : def.mode === 'toggle' ? !!def.defaultOn : false,
+      charges : def.charges || 0,
+      cd      : 0
+    };
+    inv.used[id] = 0;
+  });
+  return inv;
+}
 
 /* ---------- engine handles ---------- */
 var renderer, scene, camera, clock;
