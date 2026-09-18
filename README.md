@@ -55,12 +55,15 @@ config.js           local credentials, ignored by git
 .gitignore
 README.md
 db/schema.sql       table, constraints, indexes, security policies and views
+db/sample_data.sql  optional demo rows, not run before the defense
 docs/screenshots/   implementation evidence
 ```
 
 ## How to Run
 1. In Supabase, open SQL Editor, paste the contents of `db/schema.sql`, and run it. This
-   creates the table, the indexes, the security policies and the views.
+   creates the table, the indexes, the security policies and the views. It does not add any
+   rows, so the first run you play is the first row in the table. `db/sample_data.sql` can be
+   run separately if you want a populated leaderboard while working on the layout.
 2. Copy `config.example.js` to `config.js` and fill in your Supabase project URL and anon
    public key from Project Settings then API.
 3. Open the folder in Visual Studio Code, install the Live Server extension, right click
@@ -91,7 +94,11 @@ or when no residents are left to rescue. The game collects the run data into one
 sends it as a POST request to `/rest/v1/game_runs`. The anon public key is attached in the
 request headers so Supabase knows which project it belongs to. If the save works, the
 after-action report shows "Saved to Supabase". If the database cannot be reached, the run is
-kept in browser storage instead so it is not lost.
+kept in browser storage instead so it is not lost, and it is also added to a retry queue. The
+next time the game loads and reaches Supabase, the queued runs are posted and the queue is
+cleared, so a run played during an outage still ends up in the database. Every request is
+given an eight second deadline so a stalled connection falls back to browser storage rather
+than leaving the report waiting.
 
 **Retrieving.** After saving, the game sends a GET request to the `leaderboard` view, which
 returns the best run of each player. Supabase sends the rows back as JSON and the game draws
