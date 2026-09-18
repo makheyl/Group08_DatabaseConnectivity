@@ -1663,6 +1663,16 @@ function endMission(reason){
   $('sumText').textContent = text;
 
   var stars = (S.rescued === all && S.capsizes === 0) ? 3 : (S.rescued >= Math.ceil(all * 0.75) ? 2 : (S.rescued > 0 ? 1 : 0));
+
+  // The triage question the report has to answer: of the people who could
+  // least afford to wait, how many are actually inside?
+  var highTotal = 0, highSafe = 0;
+  for (var hv = 0; hv < victims.length; hv++){
+    if (victims[hv].tag === 'adult') continue;
+    highTotal++;
+    if (victims[hv].safe) highSafe++;
+  }
+
   var cells = [
     ['Extracted', S.rescued + ' / ' + all, S.rescued === all ? 'good' : (S.rescued ? 'warn' : 'bad')],
     ['Lost', String(S.lost), S.lost ? 'bad' : 'good'],
@@ -1671,6 +1681,7 @@ function endMission(reason){
     ['Distance', Math.round(S.distance) + ' m', ''],
     ['Time left', Math.floor(S.timeLeft / 60) + ':' + ('0' + Math.floor(S.timeLeft % 60)).slice(-2), S.timeLeft > 30 ? 'good' : 'warn'],
     ['Rating', '★'.repeat(stars) + '☆'.repeat(3 - stars), stars === 3 ? 'good' : 'warn'],
+    ['High priority', highSafe + ' / ' + highTotal, highSafe === highTotal ? 'good' : 'bad'],
     ['Score', String(score), '']
   ];
   var html = '';
@@ -1684,9 +1695,12 @@ function endMission(reason){
     var r = victims[v];
     var cls = r.safe ? 'ok' : (r.lost ? 'no' : '');
     var status = r.safe ? 'safe' : (r.lost ? 'lost' : 'still on the roof');
-    roster += '<span class="' + cls + '">' + r.data.name + ' &mdash; <b>' + status + '</b></span>';
+    roster += '<span class="' + cls + '">' + r.data.name + ' &mdash; <b>' + status + '</b>'
+            + ' <i style="opacity:.6;font-style:normal">' + TAGS[r.tag].label + '</i></span>';
   }
   $('sumRoster').innerHTML = roster;
+
+  renderLessons();
 
   // persist the run, then show where it landed on the board
   // keep completion_status and the written verdict in agreement
@@ -1720,6 +1734,93 @@ function endMission(reason){
   $('summary').hidden = false;
   $('hud').hidden = true;
   $('touch').hidden = true;
+}
+
+/* --------------------------------------------------------------------------
+   The prep linkage. This is the part the whole exercise exists to deliver:
+   not a score, but a sentence naming which empty slot cost which neighbour.
+   -------------------------------------------------------------------------- */
+function renderLessons(){
+  var out = [];
+  var people = function(n){ return n === 1 ? 'resident' : 'residents'; };
+
+  // --- what was left on the dock ---
+  var nSalb = blockedCount('salbabida');
+  if (!hasSupply('salbabida') && nSalb > 0){
+    out.push({ kind:'bad', text:'<b>No salbabida.</b> You pulled alongside ' + nSalb + ' ' + people(nSalb) +
+      ' in open water and had nothing to throw them.' });
+  }
+  var nLub = blockedCount('lubid');
+  if (!hasSupply('lubid') && nLub > 0){
+    out.push({ kind:'bad', text:'<b>No lubid.</b> ' + nLub + ' ' + people(nLub) +
+      ' were pinned behind debris you could not clear by hand.' });
+  }
+  var nBot = blockedCount('botika');
+  if (!hasSupply('botika') && nBot > 0){
+    out.push({ kind:'bad', text:'<b>No botika.</b> ' + nBot + ' injured ' + people(nBot) +
+      ' could be reached but not treated, so they could not board at all.' });
+  }
+  if (!hasSupply('flashlight')){
+    var unseen = victims.filter(function(r){ return !r.known && !r.safe; }).length;
+    out.push({ kind: unseen > 0 ? 'bad' : 'warn',
+      text: unseen > 0
+        ? '<b>You left the flashlight.</b> ' + unseen + ' ' + people(unseen) +
+          ' were never spotted at all — you searched the dark with the naked eye.'
+        : '<b>You left the flashlight</b> and searched on a storm night anyway. You got away with it this once.' });
+  }
+
+  // --- what the packed slots actually bought ---
+  if (hasSupply('radyo')){
+    var pings = S.inv.used.radyo || 0;
+    out.push({ kind: pings > 0 ? 'good' : 'warn',
+      text: pings > 0
+        ? '<b>The radyo earned its slot.</b> You called for a bearing ' + pings +
+          (pings === 1 ? ' time' : ' times') + ' and it put you onto people you had not seen.'
+        : '<b>You packed the radyo and never called it.</b> A bearing was free the whole run.' });
+  }
+  if (hasSupply('tubig') && (S.inv.used.tubig || 0) === 0){
+    out.push({ kind:'warn', text:'<b>Three swigs of tubig, unopened.</b> The engine was never your bottleneck.' });
+  }
+  if (hasSupply('relief') && S.rescued > 0){
+    out.push({ kind:'good', text:'<b>Relief goods:</b> +' + (S.rescued * 30) + ' points across ' +
+      S.rescued + ' deliveries — but that slot never pulled anyone out of the water.' });
+  }
+
+  // --- dead weight ---
+  var dead = S.inv.packed.filter(function(id){
+    if (id === 'kapote' || id === 'flashlight') return false;   // both work passively
+    return (S.inv.used[id] || 0) === 0;
+  }).map(function(id){ return SUPPLY_BY_ID[id].fil; });
+  if (dead.length){
+    out.push({ kind:'warn', text:'<b>Came back untouched:</b> ' + dead.join(', ') +
+      '. On a ' + CFG.slots + '-slot bangka that is ' +
+      (dead.length === 1 ? 'a slot' : dead.length + ' slots') + ' somebody needed.' });
+  }
+
+  // --- how the losses happened ---
+  var drowned = victims.filter(function(r){ return r.lostTo === 'submerged'; }).length;
+  if (drowned > 0){
+    out.push({ kind:'bad', text:'<b>' + drowned + ' roof' + (drowned === 1 ? '' : 's') + ' went under with ' +
+      (drowned === 1 ? 'someone' : 'people') + ' still on ' + (drowned === 1 ? 'it' : 'them') +
+      '.</b> The low houses always flood first — that is who you go to first.' });
+  }
+  var swept = victims.filter(function(r){ return r.lostTo === 'current'; }).length;
+  if (swept > 0){
+    out.push({ kind:'bad', text:'<b>' + swept + ' ' + people(swept) + ' slipped into the current and were carried off</b> ' +
+      'before the boat reached them. Once someone is off the roof the clock is far shorter.' });
+  }
+  if (S.rescued === victims.length){
+    out.push({ kind:'good', text:'<b>Buong barangay, ligtas.</b> Every name on the roster is inside the ' +
+      'evacuation centre. That is what a packed bag buys you.' });
+  }
+
+  // --- always close on the real point ---
+  out.push({ kind:'', text:'A go-bag is packed before the water rises, not after. ' +
+    'Salbabida, botika, lubid, flashlight, radyo, tubig — the same list your barangay asks every household to keep by the door.' });
+
+  $('sumLessons').innerHTML = out.map(function(l){
+    return '<div class="lesson ' + l.kind + '">' + l.text + '</div>';
+  }).join('');
 }
 
 /* =========================  DATA STORE  =========================
