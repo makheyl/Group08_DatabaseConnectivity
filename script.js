@@ -671,12 +671,21 @@ function setSituation(v, situation){
   // case is moved to the nearest wreckage so the rope has something to be for.
   var ax = v.x, az = v.z;
   if (situation === 'debris' && debris.length){
+    // Debris carries its position on the mesh, not on the record itself.
     var best = null, bestD = 1e9;
     for (var i = 0; i < debris.length; i++){
-      var d = Math.hypot(debris[i].x - v.x, debris[i].z - v.z);
-      if (d < bestD){ bestD = d; best = debris[i]; }
+      var p = debris[i].mesh.position;
+      var d = Math.hypot(p.x - v.x, p.z - v.z);
+      if (d < bestD){ bestD = d; best = p; }
     }
-    if (best){ ax = best.x; az = best.z; }
+    // Stand them clear of the wreckage rather than inside it, so the hull can
+    // still get within rescue range.
+    if (best){
+      var ang0 = Math.atan2(v.z - best.z, v.x - best.x);
+      if (!isFinite(ang0)) ang0 = 0;
+      ax = best.x + Math.cos(ang0) * 2.2;
+      az = best.z + Math.sin(ang0) * 2.2;
+    }
   } else {
     var bb = v.building, out = (bb.hw > bb.hd ? bb.hd : bb.hw) + 2.6;
     var ang = Math.atan2(v.z - bb.z, v.x - bb.x);
