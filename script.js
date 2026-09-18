@@ -1334,6 +1334,26 @@ DB.head = function(extra){
   return h;
 };
 
+var DB_TIMEOUT = 8000;
+
+/* A request that never settles would leave the after-action screen stuck on
+   "Saving run...", so every call to Supabase is given a deadline. */
+function dbFetch(url, opts){
+  opts = opts || {};
+  var ctrl = (typeof AbortController === 'function') ? new AbortController() : null;
+  if (ctrl) opts.signal = ctrl.signal;
+  var timer = setTimeout(function(){ if (ctrl) ctrl.abort(); }, DB_TIMEOUT);
+  var clear = function(){ clearTimeout(timer); };
+  return fetch(url, opts).then(
+    function(res){ clear(); return res; },
+    function(err){
+      clear();
+      if (err && err.name === 'AbortError') throw new Error('Request timed out');
+      throw err;
+    }
+  );
+}
+
 var LOCAL_KEY  = 'bayanihan.runs';
 var NAME_KEY   = 'bayanihan.callsign';
 var PLAYER_KEY = 'bayanihan.player_id';
@@ -1432,7 +1452,7 @@ function buildRun(status, verdict){
 
 function saveRun(run, done){
   if (!DB.live()){ localSave(run); done(null, 'local'); return; }
-  fetch(DB.rest(), {
+  dbFetch(DB.rest(), {
     method  : 'POST',
     headers : DB.head({ 'Content-Type': 'application/json', 'Prefer': 'return=minimal' }),
     body    : JSON.stringify(run)
@@ -1455,7 +1475,7 @@ function fetchBoard(done){
   var q = '?select=player_id,player_name,score,residents_rescued,completion_status,created_at'
         + '&order=score.desc,created_at.asc&limit=8';
   var read = function(rel){
-    return fetch(DB.rest(q, rel), { headers: DB.head() }).then(function(res){
+    return dbFetch(DB.rest(q, rel), { headers: DB.head() }).then(function(res){
       if (!res.ok) return res.text().then(function(t){ throw new Error(res.status + ' ' + t.slice(0, 140)); });
       return res.json();
     });
