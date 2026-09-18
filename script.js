@@ -1562,13 +1562,4 @@ if (window.THREE){
   document.head.appendChild(s);
 }
 
-/* keep a mission in progress across a republish */
-try {
-  if (window.claude && window.claude.hot){
-    window.claude.hot.snapshot(function(){
-      return S && S.phase === 'run' ? { t: S.t, rescued: S.rescued, lost: S.lost } : null;
-    });
-  }
-} catch (e){}
-
 })();
