@@ -6,7 +6,8 @@ Awareness Among Youth Groups (SDG 11: Sustainable Cities and Communities)
 
 ## Prototype Feature
 Saving and retrieving mission records. When a rescue mission ends, the game saves the run to
-a Supabase database. The after-action screen then shows a Top runs leaderboard, and a
+a Supabase database — including what the player packed before launching and how the most
+vulnerable residents fared. The after-action screen then shows a Top runs leaderboard, and a
 "Load from database" button reads the records back on demand.
 
 ## Group Members
@@ -44,6 +45,9 @@ Supabase (PostgreSQL 15), accessed through its REST API.
 - time_remaining
 - completion_status
 - remarks
+- packed (the supplies chosen in the preparation phase)
+- stars (1 to 3 rating)
+- high_saved and high_total (elderly, child and injured residents delivered, out of how many)
 
 ## Project Files
 ```
@@ -80,10 +84,48 @@ docs/screenshots/   implementation evidence
 | `W` | Throttle |
 | `S` | Brake, then reverse |
 | `A` `D` | Steer |
-| `Shift` | Engine boost |
+| `Shift` | Engine boost, drains the tank |
 | `E` | Hold to bring a resident aboard |
+| `1`–`4` | Use the matching packed supply |
 | `Space` | Signal flare, lights every rooftop for six seconds |
 | `P` | Pause |
+
+## Game Mechanics
+The point of the game is that **rescue is a community act and preparation is what makes it
+possible**, so the mission is built to make an empty slot in the boat cost somebody.
+
+**Preparation phase.** Before launching, the player packs the bangka. There are eight supplies
+and only four slots, so packing is a real decision. Nothing is ever blocked — the player is
+free to launch badly prepared, and the report afterwards names what that cost.
+
+| Supply | What it does in the water |
+|---|---|
+| Salbabida (lifebuoy) | Required to take anyone already in open water |
+| Botika (first-aid kit) | Required to treat an injured resident, as a two-second hold, before they can board |
+| Lubid (rope) | Required to free anyone pinned behind debris |
+| Flashlight | Roughly triples the range at which a signal light is spotted |
+| Radyo (two-way radio) | Calls in a bearing to someone not yet located, every 20 seconds |
+| Tubig (drinking water) | Three swigs, each refilling the engine boost instantly |
+| Kapote (raincoat) | Residents hold on longer across the whole roster |
+| Relief goods | +30 points per resident delivered, but saves nobody |
+
+**Triage.** Every resident is tagged elderly, child, injured or able-bodied. Higher priority is
+worth more points *and* runs out sooner, which is the triage lesson expressed as two numbers:
+you cannot reach everyone, so you learn who to reach first. The report scores high-priority
+survivors separately from the headline count.
+
+**Situations.** Residents are not all simply waiting on a roof. Some are already in the current
+and some are pinned against debris, and each of those needs the matching tool. A resident whose
+personal timer runs out does not die — they slip off the roof into the water, where they are
+still savable but only with the salbabida and only briefly.
+
+**The flood is the clock.** The waterline climbs for the whole mission. When it reaches a roof,
+whoever is standing on it is lost, and the low houses go under first. Reading the water and
+going to the low roofs early is the skill the mission is teaching.
+
+**The report.** The after-action screen does not just score the run. It writes the link between
+the pack and the outcome in plain language — *"No salbabida. You pulled alongside two residents
+in open water and had nothing to throw them."*
 
 ## Database Flow
 The game is made with HTML and JavaScript, so it talks to Supabase directly through the REST
@@ -99,6 +141,12 @@ next time the game loads and reaches Supabase, the queued runs are posted and th
 cleared, so a run played during an outage still ends up in the database. Every request is
 given an eight second deadline so a stalled connection falls back to browser storage rather
 than leaving the report waiting.
+
+**Analysing.** The `preparation_effect` view groups every run by whether the three rescue tools
+were aboard and compares the outcomes — average rescued, average lost, and the percentage of
+high-priority residents saved. That view is how the project's claim is actually argued from the
+data rather than asserted: if the game teaches what it says it does, the well-packed rows save
+more of the people who could least afford to wait.
 
 **Retrieving.** After saving, the game sends a GET request to the `leaderboard` view, which
 returns the best run of each player. Supabase sends the rows back as JSON and the game draws
@@ -116,7 +164,11 @@ service_role key is never used in this project.
 The instructor GitHub account gracheleliza was added as collaborator.
 
 ## Known Limitations
-- The prototype has only one map and one difficulty setting.
+- The prototype has only one map and one difficulty setting. The supply set and the triage
+  rules are built to support more missions, but only the one barangay is implemented.
+- The preparation phase offers eight supplies against four slots. The kapote and the relief
+  goods are the weakest of the eight by design, but they have not been balance-tested against
+  a large number of real playthroughs.
 - There are no player accounts. A player is identified by a `player_id` stored in their
   browser, so clearing browser data or using another device creates a new id.
 - Because there is no login, anyone can submit a run, and scores are not verified by a server.
