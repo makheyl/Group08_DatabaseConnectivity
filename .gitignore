@@ -1,0 +1,10 @@
+.DS_Store
+Thumbs.db
+.vscode/
+node_modules/
+.env
+.env.local
+*.log
+
+# local database credentials — never commit
+config.js

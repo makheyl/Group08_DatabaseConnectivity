@@ -1,0 +1,148 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="description" content="Bayanihan: Disaster Rescue — 3D typhoon flood rescue prototype (SDG 11). Group 08 capstone.">
+<title>Bayanihan Disaster Rescue</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@500;600&display=swap">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div id="app">
+  <canvas id="scene"></canvas>
+  <div id="vignette"></div>
+  <div id="flash"></div>
+
+  <div id="hud" hidden>
+    <div class="panel hud-tl" id="clockpanel">
+      <div class="label">Mission clock</div>
+      <div class="big mono" id="clock">05:00</div>
+      <div class="sub" id="objective">Floodwater rising &mdash; locate residents by their signal lights.</div>
+      <div class="bearing"><i id="bearArrow"></i><span id="bearText">Sweep for signals</span></div>
+    </div>
+
+    <div class="panel hud-tr">
+      <div class="label">Residents</div>
+      <div class="pips" id="pips"></div>
+      <div class="statline"><span class="mono" id="rescued">0</span> extracted &middot; <span class="mono" id="lost">0</span> lost</div>
+    </div>
+
+    <div class="panel hud-bl">
+      <div class="gauge"><div class="label">Hull</div><div class="bar"><i id="hullbar"></i></div><span class="mono" id="hullval">100%</span></div>
+      <div class="gauge"><div class="label">Aboard</div><div class="seats" id="seats"></div></div>
+      <div class="gauge"><div class="label">Flare</div><div class="bar flare"><i id="flarebar"></i></div><span class="mono" id="flareval">READY</span></div>
+    </div>
+
+    <div class="panel hud-br">
+      <canvas id="minimap" width="168" height="168"></canvas>
+      <div class="label center">Brgy. San Isidro</div>
+    </div>
+
+    <div class="alert" id="alert" hidden></div>
+    <div class="prompt" id="prompt" hidden>
+      <div class="name" id="promptName">Resident</div>
+      <div class="note" id="promptNote">Hold <span class="key">E</span> to bring aboard</div>
+      <div class="bar"><i id="promptBar"></i></div>
+    </div>
+    <div class="toast" id="toast" hidden></div>
+  </div>
+
+  <div id="touch" hidden>
+    <div class="cluster">
+      <div class="tbtn" data-key="a">&#9664;</div>
+      <div class="tbtn" data-key="d">&#9654;</div>
+    </div>
+    <div class="cluster">
+      <div class="tbtn" data-key=" ">Flare</div>
+      <div class="tbtn" data-key="e">Rescue</div>
+      <div class="tbtn wide" data-key="w">Throttle</div>
+    </div>
+  </div>
+
+  <div class="overlay" id="briefing">
+    <div class="sheet">
+      <div class="eyebrow">MDRRMO Rescue Unit 7 &middot; Vertical slice</div>
+      <h1>Bayanihan<span>Disaster Rescue</span></h1>
+      <div class="meta">
+        <span class="tag hot">PAGASA Signal No. 4</span>
+        <span class="tag">Bagyong Sigwa</span>
+        <span class="tag">Brgy. San Isidro, Bulacan</span>
+        <span class="tag">SDG 11</span>
+      </div>
+      <div class="rule"></div>
+      <p class="brief" id="briefText">
+        Landfall was four hours ago. The spillway release has pushed floodwater through the barangay
+        to second-storey level and it is <b>still rising</b>. Power is out, the streets are canals, and
+        <b>eight residents</b> are on their roofs waiting for a boat. You have one rubber boat,
+        room for three at a time, and about <b>five minutes</b> before the current makes these streets impassable.
+      </p>
+      <div class="rule"></div>
+      <div class="cols">
+        <div>
+          <h2>Objectives</h2>
+          <ul class="obj">
+            <li data-n="01">Sweep the flooded streets and find residents by their signal lights.</li>
+            <li data-n="02">Pull up alongside and bring them aboard &mdash; three to a trip.</li>
+            <li data-n="03">Run them back to the evacuation centre at the elementary school.</li>
+            <li data-n="04">Mind the hull. Debris and walls at speed will sink you.</li>
+          </ul>
+        </div>
+        <div>
+          <h2>Controls</h2>
+          <div class="ctrl">
+            <b><span class="key">W</span></b><span>Throttle</span>
+            <b><span class="key">S</span></b><span>Brake, then astern</span>
+            <b><span class="key">A</span><span class="key">D</span></b><span>Steer &mdash; she pivots even at a standstill</span>
+            <b><span class="key">Shift</span></b><span>Engine boost</span>
+            <b><span class="key">E</span></b><span>Hold to bring aboard</span>
+            <b><span class="key">Space</span></b><span>Signal flare &mdash; reveals everyone</span>
+            <b><span class="key">P</span></b><span>Pause</span>
+            <b><span class="key">Shift</span>+<span class="key">Q</span></b><span>End the run now &mdash; for demos</span>
+          </div>
+        </div>
+      </div>
+      <div class="namerow">
+        <input id="playerName" type="text" maxlength="24" placeholder="Rescue unit callsign" autocomplete="off" spellcheck="false" aria-label="Rescue unit callsign">
+        <span class="chip" id="dbChip">checking store&hellip;</span>
+      </div>
+      <button class="cta" id="startBtn">Launch the boat</button>
+    </div>
+  </div>
+
+  <div class="overlay" id="pause" hidden>
+    <div class="sheet">
+      <div class="eyebrow">Mission held</div>
+      <h1 style="font-size:clamp(28px,5vw,40px)">Paused</h1>
+      <p class="brief">The storm waits. Nobody on a roof does.</p>
+      <button class="cta" id="resumeBtn">Resume</button>
+      <button class="cta ghost" id="abortBtn">Restart mission</button>
+    </div>
+  </div>
+
+  <div class="overlay" id="summary" hidden>
+    <div class="sheet">
+      <div class="eyebrow" id="sumEyebrow">After-action report</div>
+      <h1 id="sumTitle" style="font-size:clamp(28px,5.5vw,44px)">Mission complete</h1>
+      <p class="brief" id="sumText"></p>
+      <div class="scores" id="sumScores"></div>
+      <div class="roster" id="sumRoster"></div>
+      <div class="saverow" id="saveRow"><b>Saving run&hellip;</b></div>
+      <div class="boardhead">
+        <h2>Top runs</h2>
+        <button class="minibtn" id="refreshBoard" type="button">Load from database</button>
+      </div>
+      <div class="board" id="board"><div class="empty">Loading&hellip;</div></div>
+      <button class="cta" id="againBtn">Run it again</button>
+    </div>
+  </div>
+</div>
+
+<script src="config.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="script.js"></script>
+</body>
+</html>
