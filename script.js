@@ -13,6 +13,8 @@ var CFG = {
   missionTime : 300,      // seconds
   capacity    : 3,        // residents per trip
   slots       : 4,        // supplies the bangka can carry
+  stamDrain   : 26,       // boost drain per second
+  stamRegen   : 10.5,     // and how slowly it comes back
   stabilise   : 2.0,      // seconds of holding E to treat an injured resident
   radioCool   : 20,       // seconds between bearings from the MDRRMO
   riseTotal   : 1.15,     // metres the floodwater climbs over the mission
@@ -778,6 +780,7 @@ function resetMission(){
     unloadT: 0,
     inv: makeInventory(loadout),
     delivered: 0,          // triage points banked at the evacuation centre
+    stamina: 100, supLatch: {},
     blocked: {},           // supply id -> { residentName: true } it would have unlocked
     neverFound: 0,
     over: false, result: null, score: 0,
@@ -929,6 +932,7 @@ function update(dt, t){
     updateBoat(dt, t);
     updateVictims(dt, t);
     updateRescue(dt);
+    updateSupplies(dt);
     updateFlare(dt);
     if (S.timeLeft <= 0) endMission('time');
     var open = 0;
@@ -997,7 +1001,11 @@ function updateBoat(dt, t){
   var steer = axisSteer();
   var fwd  = (keys['w'] || keys['arrowup']) ? 1 : 0;
   var back = (keys['s'] || keys['arrowdown']) ? 1 : 0;
-  var boosting = !!(keys['shift'] && fwd);
+  // The boost is the only thing that beats a current lane, and it runs on a
+  // tank that empties. The tubig is what refills it mid-run.
+  var boosting = !!(keys['shift'] && fwd && S.stamina > 1);
+  if (boosting) S.stamina = Math.max(0, S.stamina - CFG.stamDrain * dt);
+  else          S.stamina = Math.min(100, S.stamina + CFG.stamRegen * dt);
 
   // S is a real brake first and astern second
   var accel = 0;
@@ -1157,8 +1165,14 @@ function updateVictims(dt, t){
       }
     }
 
+    // The storm killed the power. A hand torch is the difference between
+    // reading a roof at thirty metres and driving straight past it.
+    var reach = CFG.discover;
+    if (hasSupply('flashlight') && S.inv.state.flashlight && S.inv.state.flashlight.on) reach *= 2.1;
+    else if (!hasSupply('flashlight')) reach *= 0.62;
+
     var d = Math.hypot(v.x - S.x, v.z - S.z);
-    if (!v.known && d < CFG.discover){
+    if (!v.known && d < reach){
       v.known = true;
       toast('Signal spotted — ' + v.data.name, 'info');
     }
@@ -1305,6 +1319,66 @@ function blockedCount(supplyId){
 
 function refreshSeats(){
   for (var i = 0; i < seatSlots.length; i++) seatSlots[i].visible = i < S.aboard.length;
+}
+
+/* --------------------------------------------------------------------------
+   The packed kit in the field. Number keys 1-4 map to the slots in the order
+   they were packed, so the hotbar reads the same as the preparation screen.
+   -------------------------------------------------------------------------- */
+function updateSupplies(dt){
+  var packed = S.inv.packed;
+  for (var i = 0; i < packed.length; i++){
+    var st = S.inv.state[packed[i]];
+    if (st && st.cd > 0) st.cd = Math.max(0, st.cd - dt);
+  }
+  for (var k = 0; k < packed.length && k < CFG.slots; k++){
+    var key = String(k + 1);
+    if (keys[key]){
+      if (!S.supLatch[key]){ S.supLatch[key] = true; useSupply(packed[k]); }
+    } else {
+      S.supLatch[key] = false;
+    }
+  }
+}
+
+function useSupply(id){
+  var def = SUPPLY_BY_ID[id], st = S.inv.state[id];
+  if (!def || !st) return;
+
+  if (def.mode === 'toggle'){
+    st.on = !st.on;
+    toast(def.fil + (st.on ? ' on' : ' off'), 'info');
+    return;
+  }
+
+  if (def.mode === 'charge'){
+    if (st.charges <= 0){ toast('No ' + def.fil + ' left', 'bad'); return; }
+    if (S.stamina > 92){ toast('The engine is already fresh', 'info'); return; }
+    st.charges--;
+    S.stamina = 100;
+    S.inv.used[id] = (S.inv.used[id] || 0) + 1;
+    toast('Tubig — engine boost back to full (' + st.charges + ' left)', 'good');
+    return;
+  }
+
+  if (def.mode === 'cooldown'){
+    if (st.cd > 0){ toast(def.fil + ' — ' + Math.ceil(st.cd) + 's to the next bearing', 'info'); return; }
+    // The radyo is the search assist: it calls in the position of somebody the
+    // boat has not spotted yet, which is the only way to find a dark roof
+    // before the water does.
+    var tgt = null, bd = 1e9;
+    for (var i = 0; i < victims.length; i++){
+      var v = victims[i];
+      if (v.safe || v.lost || v.aboard || v.known) continue;
+      var d = Math.hypot(v.x - S.x, v.z - S.z);
+      if (d < bd){ bd = d; tgt = v; }
+    }
+    st.cd = CFG.radioCool;
+    S.inv.used[id] = (S.inv.used[id] || 0) + 1;
+    if (!tgt){ toast('MDRRMO: no unlocated residents left', 'info'); return; }
+    tgt.known = true;
+    toast('MDRRMO bearing — ' + tgt.data.name + ', ' + Math.round(bd) + ' m out', 'good');
+  }
 }
 
 function updateFlare(dt){
@@ -1456,6 +1530,24 @@ function syncHUD(){
   else if (S.aboard.length) obj.textContent = S.aboard.length + ' aboard. Room for ' + (CFG.capacity - S.aboard.length) + ' more.';
   else obj.textContent = 'Floodwater rising — find residents by their signal lights.';
 
+  $('stambar').style.width = clamp(S.stamina, 0, 100) + '%';
+  $('stamval').textContent = Math.round(S.stamina) + '%';
+
+  var hb = '';
+  for (var h = 0; h < S.inv.packed.length && h < CFG.slots; h++){
+    var sid = S.inv.packed[h], sdef = SUPPLY_BY_ID[sid], sst = S.inv.state[sid];
+    var cls = 'slot', val = '';
+    if (sdef.mode === 'charge'){ val = sst.charges + '×'; cls += sst.charges > 0 ? ' ready' : ' spent'; }
+    else if (sdef.mode === 'cooldown'){
+      val = sst.cd > 0 ? Math.ceil(sst.cd) + 's' : 'READY';
+      cls += sst.cd > 0 ? ' spent' : ' ready';
+    }
+    else if (sdef.mode === 'toggle'){ val = sst.on ? 'ON' : 'OFF'; cls += sst.on ? ' ready' : ' spent'; }
+    else { val = '•'; cls += ' ready'; }
+    hb += '<div class="' + cls + '">' + (h + 1) + ' ' + esc(sdef.fil) + '<b>' + val + '</b></div>';
+  }
+  $('hotbar').innerHTML = hb;
+
   // where to point the bow
   var arrow = $('bearArrow'), btext = $('bearText'), tgt = null, tname = '', toCentre = false;
   if (S.aboard.length >= CFG.capacity){ tgt = school; tname = 'evacuation centre'; toCentre = true; }
@@ -1477,7 +1569,9 @@ function syncHUD(){
     btext.textContent = Math.round(Math.hypot(tgt.x - S.x, tgt.z - S.z)) + ' m — ' + tname;
   } else {
     arrow.style.visibility = 'hidden';
-    btext.textContent = 'Sweep for signals — Space for a flare';
+    btext.textContent = hasSupply('radyo')
+      ? 'Sweep for signals — call the radyo for a bearing'
+      : 'Sweep for signals — no radyo aboard';
   }
 
   var a = $('alert');

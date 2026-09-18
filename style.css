@@ -74,6 +74,19 @@ body{
 .bar{position:relative;flex:1;height:7px;background:rgba(143,182,204,.16);overflow:hidden}
 .bar i{position:absolute;inset:0 auto 0 0;width:100%;background:var(--safe);transition:width .18s linear}
 .bar.flare i{background:var(--amber)}
+.bar.boost i{background:var(--sky)}
+.hotbar{display:flex;gap:5px;margin-top:9px}
+.hotbar .slot{
+  flex:1;min-width:0;border:1px solid var(--line);padding:4px 5px;
+  font-family:Oswald,sans-serif;font-size:9.5px;letter-spacing:.09em;
+  text-transform:uppercase;color:var(--muted);text-align:center;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+}
+.hotbar .slot b{display:block;font-family:"IBM Plex Mono",monospace;font-size:11px;color:var(--ink);font-weight:600}
+.hotbar .slot.ready{border-color:var(--amber);color:var(--amber)}
+.hotbar .slot.ready b{color:var(--amber)}
+.hotbar .slot.spent{opacity:.45}
+.hotbar:empty{display:none}
 .bar i.mid{background:var(--warn)}
 .bar i.low{background:var(--signal)}
 .gauge>.mono{font-size:12px;width:44px;text-align:right;flex:none}
