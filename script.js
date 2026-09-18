@@ -1663,6 +1663,7 @@ function endMission(reason){
   $('sumText').textContent = text;
 
   var stars = (S.rescued === all && S.capsizes === 0) ? 3 : (S.rescued >= Math.ceil(all * 0.75) ? 2 : (S.rescued > 0 ? 1 : 0));
+  S.stars = stars;
 
   // The triage question the report has to answer: of the people who could
   // least afford to wait, how many are actually inside?
@@ -1979,6 +1980,12 @@ function flushPending(){
 
 /* one row per finished mission — gameplay only, never anything personal */
 function buildRun(status, verdict){
+  var highTotal = 0, highSafe = 0;
+  for (var i = 0; i < victims.length; i++){
+    if (victims[i].tag === 'adult') continue;
+    highTotal++;
+    if (victims[i].safe) highSafe++;
+  }
   return {
     player_id         : getPlayerId(),
     player_name       : S.playerName,
@@ -1988,7 +1995,11 @@ function buildRun(status, verdict){
     residents_lost    : S.lost,
     time_remaining    : Math.max(0, Math.floor(S.timeLeft)),
     completion_status : status,
-    remarks           : String(verdict || '').slice(0, 200)
+    remarks           : String(verdict || '').slice(0, 200),
+    packed            : S.inv.packed.slice(),
+    stars             : S.stars || 0,
+    high_saved        : highSafe,
+    high_total        : highTotal
   };
 }
 

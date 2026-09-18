@@ -28,6 +28,7 @@
 -- ----------------------------------------------------------------------------
 -- 0. Reset
 -- ----------------------------------------------------------------------------
+drop view  if exists public.preparation_effect;
 drop view  if exists public.player_stats;
 drop view  if exists public.leaderboard;
 drop table if exists public.game_runs cascade;
@@ -55,6 +56,15 @@ create table public.game_runs (
     completion_status  text        not null default 'partial',
     remarks            text,
 
+    -- preparation phase -------------------------------------------------------
+    -- What the player chose to carry, and how the vulnerable fared. Kept
+    -- together because the question this table exists to answer is whether
+    -- the first column predicts the second.
+    packed             text[]      not null default '{}',
+    stars              smallint    not null default 0,
+    high_saved         smallint    not null default 0,   -- elderly/child/injured delivered
+    high_total         smallint    not null default 0,   -- ...out of how many on the roster
+
     -- integrity rules --------------------------------------------------------
     constraint player_name_length   check (char_length(btrim(player_name)) between 1 and 24),
     constraint score_range          check (score between 0 and 1000000),
@@ -63,6 +73,9 @@ create table public.game_runs (
     constraint time_range           check (time_remaining between 0 and 3600),
     constraint remarks_length       check (remarks is null or char_length(remarks) <= 200),
     constraint level_length         check (char_length(level) between 1 and 40),
+    constraint stars_range          check (stars between 0 and 3),
+    constraint packed_size          check (array_length(packed, 1) is null or array_length(packed, 1) <= 8),
+    constraint high_counts          check (high_saved between 0 and high_total),
     constraint completion_status_allowed
         check (completion_status in ('cleared', 'partial', 'recalled', 'failed'))
 );
@@ -79,6 +92,10 @@ comment on column public.game_runs.residents_lost    is 'Residents swept away be
 comment on column public.game_runs.time_remaining    is 'Seconds left on the mission clock when it ended.';
 comment on column public.game_runs.completion_status is 'cleared | partial | recalled | failed';
 comment on column public.game_runs.remarks           is 'Short after-action verdict shown to the player.';
+comment on column public.game_runs.packed             is 'Supply ids carried on this run, chosen in the preparation phase.';
+comment on column public.game_runs.stars              is 'Rating awarded, 0-3.';
+comment on column public.game_runs.high_saved         is 'High-priority residents (elderly, child, injured) delivered.';
+comment on column public.game_runs.high_total         is 'High-priority residents on the roster for this run.';
 
 
 -- ----------------------------------------------------------------------------
@@ -123,6 +140,8 @@ select distinct on (player_id)
        residents_lost,
        time_remaining,
        completion_status,
+       stars,
+       packed,
        level,
        created_at
 from   public.game_runs
@@ -143,15 +162,41 @@ select player_id,
 from   public.game_runs
 group  by player_id;
 
+-- Does preparation actually change the outcome?
+-- This is the view the capstone argues from: group every run by whether the
+-- three rescue tools were aboard, and compare what happened to the people.
+-- If the game teaches what it claims to, the equipped rows save more of the
+-- residents who could least afford to wait.
+create view public.preparation_effect as
+select case
+         when packed @> array['salbabida','lubid','botika'] then 'all three tools'
+         when packed && array['salbabida','lubid','botika'] then 'some tools'
+         else 'no rescue tools'
+       end                                                        as loadout,
+       count(*)                                                   as runs,
+       round(avg(residents_rescued), 2)                           as avg_rescued,
+       round(avg(residents_lost), 2)                              as avg_lost,
+       round(avg(stars), 2)                                       as avg_stars,
+       sum(high_saved)                                            as high_saved,
+       sum(high_total)                                            as high_total,
+       case when sum(high_total) > 0
+            then round(100.0 * sum(high_saved) / sum(high_total), 1)
+       end                                                        as high_saved_pct
+from   public.game_runs
+group  by 1;
+
 -- Views must run as the caller so the table's RLS still applies to them.
-alter view public.leaderboard  set (security_invoker = on);
-alter view public.player_stats set (security_invoker = on);
+alter view public.leaderboard        set (security_invoker = on);
+alter view public.player_stats       set (security_invoker = on);
+alter view public.preparation_effect set (security_invoker = on);
 
-grant select on public.leaderboard  to anon, authenticated;
-grant select on public.player_stats to anon, authenticated;
+grant select on public.leaderboard        to anon, authenticated;
+grant select on public.player_stats       to anon, authenticated;
+grant select on public.preparation_effect to anon, authenticated;
 
-comment on view public.leaderboard  is 'Best run per player_id, highest score first.';
-comment on view public.player_stats is 'Career totals per player_id.';
+comment on view public.leaderboard        is 'Best run per player_id, highest score first.';
+comment on view public.player_stats       is 'Career totals per player_id.';
+comment on view public.preparation_effect is 'Outcomes grouped by how well the boat was packed.';
 
 
 -- ----------------------------------------------------------------------------
@@ -187,6 +232,17 @@ comment on view public.player_stats is 'Career totals per player_id.';
 -- How many distinct players have tested the build?
 -- select count(distinct player_id) as players, count(*) as runs
 -- from   public.game_runs;
+
+-- Does packing the rescue tools change who survives? (the capstone's claim)
+-- select * from public.preparation_effect order by avg_rescued desc;
+
+-- Which supply is picked most often, and does carrying it help?
+-- select s                                  as supply,
+--        count(*)                           as runs_carried,
+--        round(avg(residents_rescued), 2)   as avg_rescued
+-- from   public.game_runs, unnest(packed) as s
+-- group  by s
+-- order  by runs_carried desc;
 
 -- Clear rate across all runs
 -- select completion_status,
