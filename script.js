@@ -621,13 +621,71 @@ function buildVictims(){
     g.position.set(vx, bb.h + 0.35, vz);
     scene.add(g);
 
+    var tag = RESIDENTS[v].tag || 'adult';
     victims.push({
       data: RESIDENTS[v], x: vx, z: vz, roofY: bb.h + 0.35,
       group: g, person: person, col: col, lamp: lamp,
-      hold: 100, known: false, aboard: false, safe: false, lost: false,
+      building: bb,
+      tag: tag,
+      situation: 'roof',              // roof | water | debris
+      timer: TAGS[tag].timer, timerMax: TAGS[tag].timer,
+      stabilised: false, stabT: 0,
+      known: false, aboard: false, safe: false, lost: false, lostTo: null,
       phase: rnd(0, 6.28)
     });
   }
+  assignSituations();
+}
+
+/* Spread the roster across the three rescue situations. Someone on a roof can
+   simply be taken; the two in the current need the salbabida and the one against
+   a debris raft needs the lubid. That spread is what makes a slot a decision
+   rather than a formality. */
+function assignSituations(){
+  var order = [];
+  for (var i = 0; i < victims.length; i++) order.push(i);
+  for (var j = order.length - 1; j > 0; j--){
+    var k = (Math.random() * (j + 1)) | 0, t = order[j]; order[j] = order[k]; order[k] = t;
+  }
+  var wantWater = 2, wantDebris = 1;
+  for (var o = 0; o < order.length; o++){
+    var v = victims[order[o]];
+    if (wantDebris > 0 && debris.length){ setSituation(v, 'debris'); wantDebris--; }
+    else if (wantWater > 0){ setSituation(v, 'water'); wantWater--; }
+  }
+  // Where each person started, so a retry restores the layout even though a
+  // roof case can slip into the water mid-run.
+  for (var s = 0; s < victims.length; s++){
+    var w = victims[s];
+    w.homeX = w.x; w.homeZ = w.z; w.homeY = w.roofY; w.homeSituation = w.situation;
+  }
+}
+
+function setSituation(v, situation){
+  v.situation = situation;
+  if (situation === 'roof') return;
+
+  // Put them in the street beside the house rather than on top of it. A debris
+  // case is moved to the nearest wreckage so the rope has something to be for.
+  var ax = v.x, az = v.z;
+  if (situation === 'debris' && debris.length){
+    var best = null, bestD = 1e9;
+    for (var i = 0; i < debris.length; i++){
+      var d = Math.hypot(debris[i].x - v.x, debris[i].z - v.z);
+      if (d < bestD){ bestD = d; best = debris[i]; }
+    }
+    if (best){ ax = best.x; az = best.z; }
+  } else {
+    var bb = v.building, out = (bb.hw > bb.hd ? bb.hd : bb.hw) + 2.6;
+    var ang = Math.atan2(v.z - bb.z, v.x - bb.x);
+    ax = bb.x + Math.cos(ang) * (Math.max(bb.hw, bb.hd) + out * 0.5);
+    az = bb.z + Math.sin(ang) * (Math.max(bb.hw, bb.hd) + out * 0.5);
+    ax = clamp(ax, -CFG.bounds + 3, CFG.bounds - 3);
+    az = clamp(az, -CFG.bounds + 3, CFG.bounds - 3);
+  }
+  v.x = ax; v.z = az;
+  v.roofY = 0.15;                    // in the water, not above it
+  v.group.position.set(ax, v.roofY, az);
 }
 
 /* =========================  INPUT  ========================= */
@@ -719,6 +777,7 @@ function resetMission(){
     boardT: 0, boardTarget: null,
     unloadT: 0,
     inv: makeInventory(loadout),
+    delivered: 0,          // triage points banked at the evacuation centre
     blocked: {},           // supply id -> { residentName: true } it would have unlocked
     neverFound: 0,
     over: false, result: null, score: 0,
@@ -728,7 +787,10 @@ function resetMission(){
   };
   for (var i = 0; i < victims.length; i++){
     var v = victims[i];
-    v.hold = 100; v.known = false; v.aboard = false; v.safe = false; v.lost = false;
+    v.x = v.homeX; v.z = v.homeZ; v.roofY = v.homeY; v.situation = v.homeSituation;
+    v.timer = v.timerMax = TAGS[v.tag].timer;
+    v.stabilised = false; v.stabT = 0;
+    v.known = false; v.aboard = false; v.safe = false; v.lost = false; v.lostTo = null;
     v.group.visible = true;
     v.group.position.set(v.x, v.roofY, v.z);
   }
@@ -1059,17 +1121,40 @@ function updateVictims(dt, t){
     var v = victims[i];
     if (v.safe || v.lost || v.aboard) continue;
 
-    // a low roof with the water climbing it is far more urgent than a high one
+    // The flood is the real clock: once the water reaches a roof, whoever is
+    // standing on it has nowhere left to go. The low houses go first, which is
+    // why reading the waterline is worth doing.
+    if (v.situation === 'roof' && S.waterLevel >= v.roofY - 0.25){
+      v.lost = true; v.lostTo = 'submerged'; S.lost++;
+      v.group.visible = false;
+      toast(v.data.name.split(',')[0] + '’s roof went under', 'bad');
+      continue;
+    }
+
     var exposure = clamp(1 - (v.roofY - S.waterLevel - 3.2) / 3.4, 0, 1);
-    var drain = 0.18 + exposure * 0.24 + 0.26 * (S.t / CFG.missionTime);
-    v.hold -= drain * dt;
     v.exposure = exposure;
 
-    if (v.hold <= 0){
-      v.hold = 0; v.lost = true; S.lost++;
-      v.group.visible = false;
-      toast(v.data.name.split(',')[0] + ' was swept off the roof', 'bad');
-      continue;
+    // The personal fuse. A kapote aboard keeps the crew working the roofs
+    // longer, which slows every fuse on the roster rather than saving one name.
+    var wear = 1 + exposure * 0.55;
+    if (hasSupply('kapote')) wear *= 0.82;
+    v.timer -= dt * wear;
+
+    if (v.timer <= 0){
+      if (v.situation === 'roof' || v.situation === 'debris'){
+        // They lose their grip and go into the current. Still savable, but now
+        // only with the salbabida, and only for a short while.
+        v.situation = 'water';
+        v.roofY = 0.15;
+        v.timer = v.timerMax = WATER_GRACE;
+        v.group.position.y = v.roofY;
+        toast(v.data.name.split(',')[0] + ' is in the current now', 'bad');
+      } else {
+        v.lost = true; v.lostTo = 'current'; S.lost++;
+        v.group.visible = false;
+        toast(v.data.name.split(',')[0] + ' was carried off by the current', 'bad');
+        continue;
+      }
     }
 
     var d = Math.hypot(v.x - S.x, v.z - S.z);
@@ -1079,7 +1164,7 @@ function updateVictims(dt, t){
     }
 
     var show = v.known || S.flareT > 0;
-    var urgency = 1 - v.hold / 100;
+    var urgency = 1 - clamp(v.timer / v.timerMax, 0, 1);
     var op = show ? (0.10 + Math.sin(t * 2.6 + v.phase) * 0.035 + urgency * 0.08) : 0;
     v.col.material.opacity = op;
     v.col.material.color.setRGB(1, 0.36 - urgency * 0.22, 0.29 - urgency * 0.2);
@@ -1102,8 +1187,14 @@ function updateRescue(dt){
       S.unloadT = 0;
       var v = S.aboard.shift();
       v.aboard = false; v.safe = true; S.rescued++;
+      // Priority pays: reaching the injured and the elderly first is worth
+      // more than filling the boat with whoever was nearest.
+      var bonus = hasSupply('relief') ? 30 : 0;
+      if (bonus) S.inv.used.relief = (S.inv.used.relief || 0) + 1;
+      S.delivered += TAGS[v.tag].score + bonus;
       refreshSeats();
-      toast(v.data.name + ' is inside the evacuation centre', 'good');
+      toast(v.data.name + ' is inside the evacuation centre (+' +
+            (TAGS[v.tag].score + bonus) + ')', 'good');
       if (S.hull < 100) S.hull = Math.min(100, S.hull + 6);
     }
     setPrompt('Evacuation centre', 'Unloading — ' + S.aboard.length + ' still aboard', S.unloadT / CFG.unloadTime);
@@ -1151,7 +1242,7 @@ function updateRescue(dt){
     S.boardT = Math.max(0, S.boardT - dt * 1.6);
   }
   var note = Math.abs(S.speed) >= 6.5 ? 'Slow down alongside' : 'Hold <span class="key">E</span> to bring aboard';
-  setPrompt(best.data.name + ' — ' + Math.round(best.hold) + '%', note, S.boardT / CFG.boardTime);
+  setPrompt(best.data.name + ' — ' + TAGS[best.tag].label, note, S.boardT / CFG.boardTime);
 }
 
 function refreshSeats(){
@@ -1366,7 +1457,7 @@ function drawMinimap(){
     var r = victims[v];
     if (r.safe || r.lost || r.aboard) continue;
     if (!r.known && S.flareT <= 0) continue;
-    g.fillStyle = r.hold < 35 ? '#ff5b4a' : '#f0a33c';
+    g.fillStyle = (r.timer / r.timerMax) < 0.35 ? '#ff5b4a' : '#f0a33c';
     g.beginPath(); g.arc(mx(r.x), my(r.z), 3.2, 0, 6.2832); g.fill();
   }
 
@@ -1388,8 +1479,9 @@ function endMission(reason){
   hidePrompt();
   clearAlert();
 
+  // Triage points carry the run; the clock and the hull are the margin on top.
   var score = Math.max(0,
-    Math.round(S.rescued * 1200 + S.timeLeft * 8 + S.hull * 4 - S.capsizes * 400 - S.lost * 600));
+    Math.round(S.delivered * 6 + S.timeLeft * 8 + S.hull * 4 - S.capsizes * 400 - S.lost * 600));
   S.score = score;
 
   var all = victims.length;
