@@ -1313,7 +1313,7 @@ function endMission(reason){
    and the game falls back to this browser's own storage so it still runs.
 
    The anon key is meant to be public; Row Level Security in
-   supabase-schema.sql is what protects the table. Never paste the
+   db/schema.sql is what protects the table. Never paste the
    service_role key here.
    ================================================================ */
 
@@ -1496,7 +1496,7 @@ function esc(t){
 function dbHint(err){
   var code = err && err.status;
   if (code === 401 || code === 403) return 'Rejected by the database (check the anon key and the RLS insert policy)';
-  if (code === 404) return 'Table not found — run supabase-schema.sql first';
+  if (code === 404) return 'Table not found — run db/schema.sql first';
   if (code === 400) return 'Row rejected — a value broke a CHECK constraint';
   if (code) return 'Database returned ' + code;
   return 'Could not reach the database';
