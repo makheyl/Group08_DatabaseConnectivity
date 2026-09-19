@@ -68,6 +68,7 @@ config.js           generated credentials file, ignored by git
 .gitignore
 README.md
 db/schema.sql       table, constraints, indexes, security policies and views
+db/migrate_add_preparation.sql  upgrades an existing table instead of resetting it
 db/sample_data.sql  optional demo rows, not run before the defense
 docs/screenshots/   implementation evidence
 ```
@@ -77,6 +78,11 @@ docs/screenshots/   implementation evidence
    creates the table, the indexes, the security policies and the views. It does not add any
    rows, so the first run you play is the first row in the table. `db/sample_data.sql` can be
    run separately if you want a populated leaderboard while working on the layout.
+
+   **If the project already has a `game_runs` table you want to keep, run
+   `db/migrate_add_preparation.sql` instead.** `schema.sql` begins by dropping the table, so
+   it destroys existing runs. The migration only adds the columns the preparation phase needs
+   and can be run more than once safely.
 2. Copy `.env.example` to `.env`, fill in your Supabase project URL and anon public key from
    Project Settings then API, and run `sh tools/env-to-config.sh`. That writes `config.js`,
    which is the file the page actually loads. Re-run it whenever `.env` changes.
