@@ -1730,6 +1730,11 @@ function endMission(reason){
       srow.className = 'saverow ok';
       srow.innerHTML = '<b>Saved to Supabase</b> &middot; ' + esc(run.player_name) + ' &middot; ' + run.score
                      + ' pts &middot; player_id ' + esc(run.player_id.slice(0, 8)) + '&hellip;';
+      if (schemaHasExtended === false){
+        srow.className = 'saverow warn';
+        srow.innerHTML += '<br><b>Loadout not recorded</b> &middot; this database predates the '
+                        + 'preparation phase &mdash; run <span class="key">db/migrate_add_preparation.sql</span> to store it';
+      }
     } else if (err){
       srow.className = 'saverow warn';
       srow.innerHTML = '<b>' + esc(dbHint(err)) + '</b> &middot; run kept in this browser instead';
@@ -2012,11 +2017,32 @@ function buildRun(status, verdict){
   };
 }
 
-function postRun(run){
+/* Columns added with the preparation phase. A database created before it will
+   not have them, and Postgres rejects the whole insert rather than ignoring
+   the extras — so a run played against an older table would be lost entirely.
+   Rather than demand everyone migrate before they can save anything, find out
+   once what the table can hold and keep saving either way. */
+var EXTENDED_FIELDS = ['packed', 'stars', 'high_saved', 'high_total'];
+var schemaHasExtended = null;          // null = not yet known
+
+function trimRun(run){
+  var copy = {};
+  for (var k in run){
+    if (Object.prototype.hasOwnProperty.call(run, k)) copy[k] = run[k];
+  }
+  for (var i = 0; i < EXTENDED_FIELDS.length; i++) delete copy[EXTENDED_FIELDS[i]];
+  return copy;
+}
+
+function isMissingColumn(err){
+  return /42703|PGRST204|does not exist|Could not find/i.test(String((err && err.message) || ''));
+}
+
+function rawPost(body){
   return dbFetch(DB.rest(), {
     method  : 'POST',
     headers : DB.head({ 'Content-Type': 'application/json', 'Prefer': 'return=minimal' }),
-    body    : JSON.stringify(run)
+    body    : JSON.stringify(body)
   }).then(function(res){
     if (!res.ok) return res.text().then(function(t){
       var e = new Error(res.status + ' ' + t.slice(0, 160));
@@ -2024,6 +2050,25 @@ function postRun(run){
       throw e;
     });
     return true;
+  });
+}
+
+function postRun(run){
+  var body = schemaHasExtended === false ? trimRun(run) : run;
+  return rawPost(body).then(function(ok){
+    if (schemaHasExtended === null) schemaHasExtended = true;
+    return ok;
+  }).catch(function(err){
+    if (schemaHasExtended !== false && isMissingColumn(err)){
+      schemaHasExtended = false;
+      if (window.console){
+        console.warn('[bayanihan] this database predates the preparation phase — ' +
+                     'saving without the loadout columns. Run db/migrate_add_preparation.sql ' +
+                     'to record them.');
+      }
+      return rawPost(trimRun(run));
+    }
+    throw err;
   });
 }
 
