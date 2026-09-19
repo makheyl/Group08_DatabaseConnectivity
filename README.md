@@ -60,8 +60,11 @@ Supabase (PostgreSQL 15), accessed through its REST API.
 index.html          page structure and all game screens
 style.css           all styling for the HUD and menus
 script.js           game logic and the database save and load functions
-config.example.js   template for the database credentials
-config.js           local credentials, ignored by git
+.env.example        template for the database connection settings
+.env                local connection settings, ignored by git
+tools/env-to-config.sh  generates config.js from .env
+config.example.js   template for writing config.js by hand instead
+config.js           generated credentials file, ignored by git
 .gitignore
 README.md
 db/schema.sql       table, constraints, indexes, security policies and views
@@ -74,8 +77,10 @@ docs/screenshots/   implementation evidence
    creates the table, the indexes, the security policies and the views. It does not add any
    rows, so the first run you play is the first row in the table. `db/sample_data.sql` can be
    run separately if you want a populated leaderboard while working on the layout.
-2. Copy `config.example.js` to `config.js` and fill in your Supabase project URL and anon
-   public key from Project Settings then API.
+2. Copy `.env.example` to `.env`, fill in your Supabase project URL and anon public key from
+   Project Settings then API, and run `sh tools/env-to-config.sh`. That writes `config.js`,
+   which is the file the page actually loads. Re-run it whenever `.env` changes.
+   (`config.example.js` is still there if you would rather write `config.js` by hand.)
 3. Open the folder in Visual Studio Code, install the Live Server extension, right click
    `index.html` and choose Open with Live Server. It opens at `http://127.0.0.1:5500`.
    You can also run `python -m http.server 5500` instead.
@@ -160,8 +165,14 @@ them in the Top runs list on the after-action screen, with the player's own run 
 The "Load from database" button runs the same request again so the records can be retrieved
 on demand.
 
-**Security.** The anon key is meant to be used in browser code, but it is still kept in
-`config.js`, which is listed in `.gitignore` and is not committed. Row Level Security is what
+**Security.** The connection settings live in `.env`, which is listed in `.gitignore` and is
+not committed, and `tools/env-to-config.sh` turns them into the `config.js` the page loads.
+`config.js` is gitignored too. It is worth being clear about what that does and does not buy:
+because this is a browser game with no server of its own, the anon key is shipped to every
+player and anyone can read it with View Source. Keeping it out of the repository stops it
+being published on GitHub; it does not make it secret. The generator refuses outright if it is
+handed a `service_role` key, since that one bypasses Row Level Security and must never reach a
+browser. Row Level Security is what
 protects the data. The policies allow adding a run and reading the board only. There is no
 update or delete policy, so scores cannot be changed or erased through the public API. The
 service_role key is never used in this project.
