@@ -2084,7 +2084,16 @@ function dbHint(err){
   var code = err && err.status;
   if (code === 401 || code === 403) return 'Rejected by the database (check the anon key and the RLS insert policy)';
   if (code === 404) return 'Table not found — run db/schema.sql first';
-  if (code === 400) return 'Row rejected — a value broke a CHECK constraint';
+  if (code === 400){
+    // A 400 is usually one of two very different problems, and telling them
+    // apart saves a long hunt: either the table predates the preparation
+    // phase and is missing its columns, or a value broke a CHECK.
+    var body = String((err && err.message) || '');
+    if (/42703|PGRST204|does not exist|Could not find/i.test(body)){
+      return 'Database is missing a column — run db/migrate_add_preparation.sql';
+    }
+    return 'Row rejected — a value broke a CHECK constraint';
+  }
   if (code) return 'Database returned ' + code;
   return 'Could not reach the database';
 }
